@@ -1,0 +1,124 @@
+Postgres Data Types
+https://www.postgresql.org/docs/current/datatype.html
+
+
+CREATE TABLE pacientes (
+  id serial4 NOT NULL,
+  nombre VARCHAR(30),
+  apellido VARCHAR(30),
+  documento VARCHAR(25),
+  pais VARCHAR(25),
+  fecha_nacimiento DATE,
+  fecha_creacion_ficha DATE,
+  sexo CHAR(1),
+  diagnostico_prenatal CHAR(1),
+  paciente_fallecido CHAR(1),
+  semanas_gestacion INT,
+  diag1 VARCHAR(140),
+  diag2 VARCHAR(140),
+  diag3 VARCHAR(140),
+  diag4 VARCHAR(140),
+  fecha_primer_diagnostico DATE,
+  nro_hist_clinica_papel VARCHAR(20),
+  nro_ficha_diag_prenatal VARCHAR(20),
+  comentarios VARCHAR(500)
+);
+
+
+ALTER TABLE public.pacientes ADD nombre varchar(30) NULL;
+
+ALTER TABLE public.pacientes ADD apellido varchar(30) NULL;
+
+ALTER TABLE public.pacientes ADD documento varchar(25) NULL;
+
+ALTER TABLE public.pacientes ADD pais varchar(25) NULL;
+
+ALTER TABLE public.pacientes ADD fecha_nacimiento date NULL;
+
+ALTER TABLE public.pacientes ADD fecha_creacion_ficha date NULL;
+
+ALTER TABLE public.pacientes ADD sexo bpchar(1) NULL;
+
+ALTER TABLE public.pacientes ADD diagnostico_prenatal bpchar(1) NULL;
+
+ALTER TABLE public.pacientes ADD paciente_fallecido bpchar(1) NULL;
+
+ALTER TABLE public.pacientes ADD semanas_gestacion int4 NULL;
+
+ALTER TABLE public.pacientes ADD diag1 varchar(140) NULL;
+
+ALTER TABLE public.pacientes ADD diag2 varchar(140) NULL;
+
+ALTER TABLE public.pacientes ADD diag3 varchar(140) NULL;
+
+ALTER TABLE public.pacientes ADD diag4 varchar(140) NULL;
+
+ALTER TABLE public.pacientes ADD fecha_primer_diagnostico date NULL;
+
+ALTER TABLE public.pacientes ADD nro_hist_clinica_papel varchar(20) NULL;
+
+ALTER TABLE public.pacientes ADD nro_ficha_diag_prenatal varchar(20) NULL;
+
+ALTER TABLE public.pacientes ADD comentarios varchar(500) NULL;
+
+ALTER TABLE public.pacientes ADD id serial4 NOT NULL;
+
+CREATE TABLE pacientes (
+  id serial4 NOT NULL,
+  nombre VARCHAR(30),
+  apellido VARCHAR(30),
+  documento VARCHAR(25),
+  pais VARCHAR(25),
+  diag1 VARCHAR(140),
+  diag2 VARCHAR(140),
+  diag3 VARCHAR(140),
+  diag4 VARCHAR(140),
+  nro_hist_clinica_papel VARCHAR(20),
+  nro_ficha_diag_prenatal VARCHAR(20),
+  comentarios VARCHAR(500),
+  semanas_gestacion INT,
+  fecha_nacimiento DATE,
+  fecha_creacion_ficha DATE,
+  fecha_primer_diagnostico DATE,
+  sexo CHAR(1),
+  diagnostico_prenatal CHAR(1),
+  paciente_fallecido CHAR(1)
+);
+
+To configure your PostgreSQL database to ignore diacritic symbols and capitalization in searches, you can use the unaccent extension and perform case-insensitive searches.
+
+Install the unaccent extension:
+
+1
+CREATE EXTENSION unaccent;
+Create a new column in your table to store the normalized version of the text:
+
+2
+ALTER TABLE pacientes ADD COLUMN normalized_apellido text;
+Update the new column with the normalized version of the existing text:
+
+Copynormalized_last_name
+UPDATE pacientes SET normalized_apellido = unaccent('apellido');
+Create an index on the normalized_text column for better performance:
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+Copy
+CREATE INDEX idx_normalized_apellido ON pacientes USING gin(normalized_apellido gin_trgm_ops);
+Use the unaccent function and perform case-insensitive searches in your queries:
+
+Copy
+SELECT * FROM pacientes WHERE unaccent(normalized_apellido) ILIKE unaccent('%cambon%');
+This configuration will allow you to search for terms without considering diacritic symbols and capitalization.
+
+
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+ALTER TABLE pacientes ADD COLUMN normalized_apellido text;
+UPDATE pacientes SET normalized_apellido = unaccent(apellido);
+CREATE INDEX idx_normalized_apellido ON pacientes USING gin(normalized_apellido gin_trgm_ops);
+
+SELECT * FROM pacientes WHERE unaccent(normalized_apellido) ILIKE unaccent('%cambon%');
+
+
+
+

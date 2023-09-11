@@ -1,0 +1,19 @@
+name: qore_server_postgres
+description: A sample command-line application.
+version: 1.0.0
+# repository: https://github.com/my_org/my_repo
+
+environment:
+  sdk: ^3.1.0
+
+# Add regular dependencies here.
+dependencies:
+  characters: ^1.3.0
+  unorm: ^1.1.0
+  logger: ^2.0.2
+  postgres: ^2.6.2
+  # path: ^1.8.0
+
+dev_dependencies:
+  lints: ^2.0.0
+  test: ^1.21.0
