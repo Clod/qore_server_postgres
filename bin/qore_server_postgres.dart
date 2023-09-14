@@ -13,14 +13,24 @@ enum Commands {
   updatePatient,
   deletePatient,
   lockPatient,
-  rollback,
+  rollback, pong,
 }
 
+// https://stackoverflow.com/questions/66340807/flutter-how-to-show-log-output-in-console-and-automatically-store-it
 var logger = Logger(
   printer: PrettyPrinter(
-    methodCount: 1,
-    lineLength: 132,
-  ),
+      methodCount: 2,
+      // number of method calls to be displayed
+      errorMethodCount: 8,
+      // number of method calls if stacktrace is provided
+      lineLength: 120,
+      // width of the output
+      colors: true,
+      // Colorful log messages
+      printEmojis: false,
+      // Print an emoji for each log message
+      printTime: true // Should each log print contain a timestamp
+      ),
 );
 
 var loggerNoStack = Logger(
@@ -45,9 +55,7 @@ void main() async {
   }
 
   final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
-  logger.i('WebSocket server running on ${server.address}:${server.port}',time: DateTime.now());
-
-  bool blockingRegister = false;
+  logger.i('WebSocket server running on ${server.address}:${server.port}', time: DateTime.now());
 
   await for (HttpRequest request in server) {
     // Open a connection to the DB per http connection (one connection per client)
@@ -56,9 +64,41 @@ void main() async {
 
     if (WebSocketTransformer.isUpgradeRequest(request)) {
       WebSocketTransformer.upgrade(request).then((webSocket) async {
-        logger.i('WebSocket connected',time: DateTime.now());
+        logger.i('WebSocket connected', time: DateTime.now());
 
+        handleTimeoutPing() async {
+          try {
+            logger.d("Enviando ping", time: DateTime.now());
+            // responseMessage = 'ping';
+            webSocket.add('ping');
+            // nroPing++;
+            // if (nroPing >= 2) {
+             // logger.f("El cliente is dead", time: DateTime.now());
+            // }
+          } catch (e) {
+            logger.d("No pude enviar el ping", time: DateTime.now());
+            print(e);
+          }
+        }
+
+        handleTimeoutPong(){
+          // No hubo respuesta al útlimo ping.
+          logger.f("El cliente is dead", time: DateTime.now());
+        }
+
+        // Define a Maximum inactive timer for the client
+        Duration pingInterval = Duration(seconds: 60);
+        Duration maxInactivityInterval = Duration(seconds: 90);
+        Timer pingTimer = Timer(pingInterval, handleTimeoutPing);
+        Timer pongTimer = Timer(maxInactivityInterval, handleTimeoutPong);
+
+        // Infinite loop waiting for messages
         await for (var message in webSocket) {
+          // Message arrived,reset timers.
+          pingTimer.cancel();
+          pongTimer.cancel();
+          pingTimer = Timer(pingInterval, handleTimeoutPing);
+
           // Convert the message to a list of int
           List<int> intList = message.toString().split(',').map((str) => int.parse(str)).toList();
 
@@ -66,11 +106,10 @@ void main() async {
 
           // Extract action
           int qoreAction = intList[0];
-          logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}",time: DateTime.now());
+          logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}", time: DateTime.now());
 
           // Extract message length
           int messageLength = intList[1] * 255 + intList[2];
-          // print("Message Length: $messageLength");
 
           String decoded = '';
 
@@ -81,7 +120,7 @@ void main() async {
           if (intList.sublist(3).length == messageLength) {
             // Decode from UTF8 list to String
             decoded = utf8.decode(intList.sublist(3));
-            logger.d("Received data: $decoded",time: DateTime.now());
+            logger.d("Received data: $decoded", time: DateTime.now());
           }
 
           if (intList.sublist(3).length == messageLength) {
@@ -101,11 +140,17 @@ void main() async {
             } else if (action == Commands.updatePatient.index) {
               String patient = utf8.decode(intList.sublist(3));
               responseMessage = await updatePatient(patient, postgresConnection);
+            } else if (action == Commands.pong.index) {
+              logger.d("Pong recibido", time: DateTime.now());
+              // Envío otro ping y lanzo timer. Si recibo pong el cliente está
+              // vivo y, si no, es que murió.
+              responseMessage = "ping";
+              pingTimer = Timer(maxInactivityInterval, handleTimeoutPong);
             } else if (action == Commands.rollback.index) {
               try {
                 await postgresConnection.execute("ROLLBACK");
               } catch (e) {
-                logger.d("No había trnasacción en curso", time: DateTime.now());
+                logger.d("No había transacción en curso", time: DateTime.now());
               }
             } else {
               logger.i("Comando desconocido recibido", time: DateTime.now());
@@ -121,7 +166,6 @@ void main() async {
             final answerFrame = [...header, ...encodedMessage];
             logger.i("Sending response back to client");
             webSocket.add(answerFrame);
-            //webSocket.add("$request");
           }
         }
       });
