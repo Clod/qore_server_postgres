@@ -25,84 +25,6 @@ var logger = Logger(
                       
 */
 
-Future<String> updatePatientLocking(String patientData, PostgreSQLConnection? conn) async {
-  logger.d("Received update request for:  $patientData");
-  String result = "";
-  // Remove curly braces from the string
-  String keyValueString = patientData.replaceAll('{', '').replaceAll('}', '');
-
-// Split the string into an array of key-value pairs
-  List<String> keyValuePairs = keyValueString.split(',');
-
-// Create a new Map<String, dynamic> object
-  Map<String, dynamic> resultMap = {};
-
-// Populate the Map with key-value pairs
-  for (String keyValue in keyValuePairs) {
-    // Split each key-value pair by the colon
-    List<String> pair = keyValue.split(':');
-
-    // Trim whitespace from the key and value strings
-    String key = pair[0].trim();
-    String? value = (pair[1].trim() == 'null' ? null : pair[1].trim());
-
-    // Add the key-value pair to the Map
-    resultMap[key] = value;
-  }
-
-  Paciente patient = Paciente.fromJson(resultMap);
-  try {
-    PostgreSQLResult? updateResult;
-
-    // Just in case last name is changed
-    String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
-
-    await conn!.transaction((ctx) async {
-      var checkResult = await conn.query("SELECT * FROM pacientes WHERE documento = @documento AND pais = @pais FOR UPDATE",
-          substitutionValues: {"documento": patient.documento, "pais": patient.pais});
-
-      updateResult = await ctx.query(
-          "UPDATE pacientes SET apellido = @apellido, normalized_apellido = @normalized_apellido, @nombre = @nombre, diag1 = @diag1, diag2 = @diag2, diag3 = @diag3, diag4 = @diag4, comentarios = @comentarios, fecha_nacimiento = @fecha_nacimiento, fecha_creacion_ficha = @fecha_creacion_ficha, sexo = @sexo, diagnostico_prenatal = @diagnostico_prenatal, paciente_fallecido = @paciente_fallecido, semanas_gestacion = @semanas_gestacion, nro_hist_clinica_papel = @nro_hist_clinica_papel, nro_ficha_diag_prenatal = @nro_ficha_diag_prenatal WHERE id = @id ",
-          substitutionValues: {
-            "id": patient.id,
-            "nombre": patient.nombre,
-            "apellido": patient.apellido,
-            "normalized_apellido": normalizedApellido,
-            "diag1": patient.diag1,
-            "diag2": patient.diag2,
-            "diag3": patient.diag3,
-            "diag4": patient.diag4,
-            "comentarios": patient.comentarios,
-            "fecha_nacimiento": patient.fechaNacimiento != null ? DateTime.parse(patient.fechaNacimiento!) : null,
-            "sexo": patient.sexo,
-            "diagnostico_prenatal": patient.diagnosticoPrenatal,
-            "paciente_fallecido": patient.pacienteFallecido,
-            "semanas_gestacion": patient.semanasGestacion,
-            "fecha_primer_diagnostico": patient.fechaPrimerDiagnostico != null
-                ? DateTime.parse(patient.fechaPrimerDiagnostico!).toString().split(' ')[0]
-                : null,
-            "nro_hist_clinica_papel": patient.nroHistClinicaPapel,
-            "nro_ficha_diag_prenatal": patient.nroFichaDiagPrenatal,
-          });
-
-      await ctx.query("COMMIT");
-    });
-
-    //     await conn.execute("COMMIT");
-    logger.d("Respuesta al UPDATE de la BD ${updateResult!.columnDescriptions.toString()}");
-    result =
-        '{"Result" : "Success", "Message" : "Se actualizó al paciente ${patient.nombre} ${patient.apellido} con índice nro. a determinar"}';
-
-    // affectedRows is a BigInt but I seriously doubt the number of
-    // patiens cas exceed 9223372036854775807
-    return result;
-  } catch (e) {
-    logger.e("Error al actualizar paciente: ${e.toString()}");
-    print(e);
-    return '{"Result" : "Failure", "Message" : "Error en la conunicación contra la BD" }';
-  }
-}
-
 Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async {
   logger.i("Received Creation request for:  $patientData");
   String result = "";
@@ -130,13 +52,6 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
 
   Paciente patient = Paciente.fromJson(resultMap);
   try {
-    // Check if there is already a patient with the same id document from the same country
-    // var checkResult = await conn!.execute("SELECT * FROM pacientes WHERE pais = :pais and documento = :doc ",
-    //     {"pais": patient.pais, "doc": patient.documento});
-
-    //final checkResult = await conn!.query("SELECT * FROM table WHERE id = @idParam:int4", substitutionValues: {"idParam" : 2});
-
-    // final checkResult = await conn!.query("SELECT documento FROM pacientes WHERE documento = @documento", substitutionValues: {"documento": "14623438"});
     var checkResult = await conn!.query("SELECT * FROM pacientes WHERE documento = @documento AND pais = @pais",
         substitutionValues: {"documento": patient.documento, "pais": patient.pais});
 
@@ -144,15 +59,6 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
       logger.i("Trying to create an already existent patient: $patient");
       result = '{"Result" : "Failure", "Message" : "Ya existe un paciente de ese país con el mismo nro. de documento" }';
     } else {
-/*      await conn.transaction((ctx) async {
-        var result = await ctx.query("SELECT * FROM pacientes");
-        await ctx.query("INSERT INTO pacientes (nombre) VALUES (@a:varchar)", substitutionValues: {
-          "a" : "Pirulo"
-        });
-      });*/
-
-      // logger.e(patient.fechaNacimiento);
-      // logger.e(patient.fechaNacimiento != null ? DateTime.parse(patient.fechaNacimiento!).toString().split(' ')[0] : null);
       PostgreSQLResult? creationResult;
 
       String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
@@ -240,6 +146,9 @@ Future<String> updatePatient(String patientData, PostgreSQLConnection? conn) asy
   Paciente patient = Paciente.fromJson(resultMap);
   try {
     PostgreSQLResult? updateResult;
+
+    // Just in case last name is changed
+    String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
 
     await conn!.transaction((ctx) async {
       updateResult = await ctx.query(
@@ -338,8 +247,8 @@ Future<String> getPatientsByIdDoc(String s, PostgreSQLConnection? conn) async {
       // retrievedPatients.add(Paciente.fromJson(row.assoc()));
       retrievedPatients.add(row.toColumnMap());
       // Convert all DateTime type to String with format yyyy-mm-dd
-      var date = retrievedPatients[retrievedPatients.length - 1]["fecha_de_nacimiento"];
-      retrievedPatients[retrievedPatients.length - 1]["fecha_de_nacimiento"] =
+      var date = retrievedPatients[retrievedPatients.length - 1]["fecha_nacimiento"];
+      retrievedPatients[retrievedPatients.length - 1]["fecha_nacimiento"] =
           date != null ? "${date.year}-${date.month}-${date.day}" : null;
       date = retrievedPatients[retrievedPatients.length - 1]["fecha_creacion_ficha"];
       retrievedPatients[retrievedPatients.length - 1]["fecha_creacion_ficha"] =
@@ -352,6 +261,45 @@ Future<String> getPatientsByIdDoc(String s, PostgreSQLConnection? conn) async {
       // logger.d("Rows retrieved: $retrievedPatients");
       logger.d(jsonEncode(retrievedPatients));
     }
+    return jsonEncode(retrievedPatients);
+  } catch (e) {
+    logger.e(e);
+    return '{"Result" : "Failure", "Message" : "Error en la comunicación contra la Base de datos" }';
+  }
+}
+
+Future<String> getPatientById(String id, PostgreSQLConnection? conn) async {
+  logger.d("Looking for patients by id: $id");
+  logger.d("Using connectionwith DB: ${conn!.processID}");
+
+
+  List<Map<String, dynamic>> retrievedPatients = [];
+
+  try {
+    await conn.query('BEGIN');
+
+    var results = await conn.query("SELECT * FROM pacientes WHERE id = @id  LIMIT 10 FOR UPDATE", substitutionValues: {"id": id});
+
+    var row = results[0];
+    logger.d(row.toString());
+    logger.d(row.runtimeType);
+    // retrievedPatients.add(Paciente.fromJson(row.assoc()));
+    retrievedPatients.add(row.toColumnMap());
+    // Convert all DateTime type to String with format yyyy-mm-dd
+    var date = retrievedPatients[retrievedPatients.length - 1]["fecha_nacimiento"];
+    retrievedPatients[retrievedPatients.length - 1]["fecha_nacimiento"] =
+        date != null ? "${date.year}-${date.month}-${date.day}" : null;
+    date = retrievedPatients[retrievedPatients.length - 1]["fecha_creacion_ficha"];
+    retrievedPatients[retrievedPatients.length - 1]["fecha_creacion_ficha"] =
+        date != null ? "${date.year}-${date.month}-${date.day}" : null;
+    date = retrievedPatients[retrievedPatients.length - 1]["fecha_primer_diagnostico"];
+    retrievedPatients[retrievedPatients.length - 1]["fecha_primer_diagnostico"] =
+        date != null ? "${date.year}-${date.month}-${date.day}" : null;
+    //
+    // logger.d("Number of rows retrieved: ${result.numOfRows}");
+    // logger.d("Rows retrieved: $retrievedPatients");
+    logger.d(jsonEncode(retrievedPatients));
+
     return jsonEncode(retrievedPatients);
   } catch (e) {
     logger.e(e);
@@ -376,4 +324,163 @@ String removeDiacritics(String input) {
   }).join('');
 
   return result;
+}
+
+Future<String> updatePatientL(String patientData, PostgreSQLConnection? conn) async {
+  logger.d("Received update request L for:  $patientData");
+  String result = "";
+  // Remove curly braces from the string
+  String keyValueString = patientData.replaceAll('{', '').replaceAll('}', '');
+
+// Split the string into an array of key-value pairs
+  List<String> keyValuePairs = keyValueString.split(',');
+
+// Create a new Map<String, dynamic> object
+  Map<String, dynamic> resultMap = {};
+
+// Populate the Map with key-value pairs
+  for (String keyValue in keyValuePairs) {
+    // Split each key-value pair by the colon
+    List<String> pair = keyValue.split(':');
+
+    // Trim whitespace from the key and value strings
+    String key = pair[0].trim();
+    String? value = (pair[1].trim() == 'null' ? null : pair[1].trim());
+
+    // Add the key-value pair to the Map
+    resultMap[key] = value;
+  }
+
+  Paciente patient = Paciente.fromJson(resultMap);
+
+  try {
+    PostgreSQLResult? updateResult;
+
+    // Just in case last name is changed
+    String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
+
+    logger.d("Abriendo transacción para modificar paciente con id: ${patient.id}");
+
+    await conn!.transaction((ctx) async {
+      await ctx.query('SELECT * FROM pacientes WHERE id = @id for update', substitutionValues: {'id': patient.id});
+
+      updateResult = await ctx.query(
+          "UPDATE pacientes SET apellido = @apellido, nombre = @nombre, diag1 = @diag1, diag2 = @diag2, diag3 = @diag3, diag4 = @diag4, comentarios = @comentarios, sexo = @sexo, diagnostico_prenatal = @diagnostico_prenatal, paciente_fallecido = @paciente_fallecido, semanas_gestacion = @semanas_gestacion, nro_hist_clinica_papel = @nro_hist_clinica_papel, nro_ficha_diag_prenatal = @nro_ficha_diag_prenatal, fecha_nacimiento = @fecha_nacimiento WHERE id = @id ",
+          substitutionValues: {
+            "id": patient.id,
+            "nombre": patient.nombre,
+            "apellido": patient.apellido,
+            "diag1": patient.diag1,
+            "diag2": patient.diag2,
+            "diag3": patient.diag3,
+            "diag4": patient.diag4,
+            "comentarios": patient.comentarios,
+            "fecha_nacimiento": patient.fechaNacimiento != null ? DateTime.parse(patient.fechaNacimiento!) : null,
+            "sexo": patient.sexo,
+            "diagnostico_prenatal": patient.diagnosticoPrenatal,
+            "paciente_fallecido": patient.pacienteFallecido,
+            "semanas_gestacion": patient.semanasGestacion,
+            "fecha_primer_diagnostico": patient.fechaPrimerDiagnostico != null
+                ? DateTime.parse(patient.fechaPrimerDiagnostico!).toString().split(' ')[0]
+                : null,
+            "nro_hist_clinica_papel": patient.nroHistClinicaPapel,
+            "nro_ficha_diag_prenatal": patient.nroFichaDiagPrenatal,
+          });
+    });
+    //     await conn.execute("COMMIT");
+    logger.d("Respuesta al UPDATE de la BD ${updateResult!.columnDescriptions.toString()}");
+    result =
+        '{"Result" : "Success", "Message" : "Se actualizó al paciente ${patient.nombre} ${patient.apellido} con índice nro. a determinar"}';
+
+    // affectedRows is a BigInt but I seriously doubt the number of
+    // patiens cas exceed 9223372036854775807
+    return result;
+  } catch (e) {
+    logger.e("Error al actualizar paciente: ${e.toString()}");
+    print(e);
+    return '{"Result" : "Failure", "Message" : "Error en la conunicación contra la BD" }';
+  }
+}
+
+Future<String> updatePatientLOCK(String patientData, PostgreSQLConnection? conn) async {
+  logger.d("Received update request L for:  $patientData");
+  String result = "";
+  // Remove curly braces from the string
+  String keyValueString = patientData.replaceAll('{', '').replaceAll('}', '');
+
+// Split the string into an array of key-value pairs
+  List<String> keyValuePairs = keyValueString.split(',');
+
+// Create a new Map<String, dynamic> object
+  Map<String, dynamic> resultMap = {};
+
+// Populate the Map with key-value pairs
+  for (String keyValue in keyValuePairs) {
+    // Split each key-value pair by the colon
+    List<String> pair = keyValue.split(':');
+
+    // Trim whitespace from the key and value strings
+    String key = pair[0].trim();
+    String? value = (pair[1].trim() == 'null' ? null : pair[1].trim());
+
+    // Add the key-value pair to the Map
+    resultMap[key] = value;
+  }
+
+  Paciente patient = Paciente.fromJson(resultMap);
+
+  try {
+    PostgreSQLResult? updateResult;
+
+    // Just in case last name is changed
+    String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
+
+    logger.d("Abriendo transacción para modificar paciente con id: ${patient.id}");
+
+    await conn?.query('BEGIN');
+
+    await conn?.query('SELECT * FROM pacientes WHERE id = @id FOR UPDATE', substitutionValues: {'id': patient.id});
+
+    // print('Before delayed');
+    // await Future.delayed(const Duration(seconds: 20), () {
+    //   print('After delay');
+    // });
+
+    updateResult = await conn?.query(
+        "UPDATE pacientes SET apellido = @apellido, nombre = @nombre, diag1 = @diag1, diag2 = @diag2, diag3 = @diag3, diag4 = @diag4, comentarios = @comentarios, sexo = @sexo, diagnostico_prenatal = @diagnostico_prenatal, paciente_fallecido = @paciente_fallecido, semanas_gestacion = @semanas_gestacion, nro_hist_clinica_papel = @nro_hist_clinica_papel, nro_ficha_diag_prenatal = @nro_ficha_diag_prenatal, fecha_nacimiento = @fecha_nacimiento WHERE id = @id ",
+        substitutionValues: {
+          "id": patient.id,
+          "nombre": patient.nombre,
+          "apellido": patient.apellido,
+          "diag1": patient.diag1,
+          "diag2": patient.diag2,
+          "diag3": patient.diag3,
+          "diag4": patient.diag4,
+          "comentarios": patient.comentarios,
+          "fecha_nacimiento": patient.fechaNacimiento != null ? DateTime.parse(patient.fechaNacimiento!) : null,
+          "sexo": patient.sexo,
+          "diagnostico_prenatal": patient.diagnosticoPrenatal,
+          "paciente_fallecido": patient.pacienteFallecido,
+          "semanas_gestacion": patient.semanasGestacion,
+          "fecha_primer_diagnostico": patient.fechaPrimerDiagnostico != null
+              ? DateTime.parse(patient.fechaPrimerDiagnostico!).toString().split(' ')[0]
+              : null,
+          "nro_hist_clinica_papel": patient.nroHistClinicaPapel,
+          "nro_ficha_diag_prenatal": patient.nroFichaDiagPrenatal,
+        });
+
+    await conn?.query("COMMIT");
+
+    logger.d("Respuesta al UPDATE de la BD ${updateResult!.columnDescriptions.toString()}");
+    result =
+        '{"Result" : "Success", "Message" : "Se actualizó al paciente ${patient.nombre} ${patient.apellido} con índice nro. a determinar"}';
+
+    // affectedRows is a BigInt but I seriously doubt the number of
+    // patiens can exceed 9223372036854775807
+    return result;
+  } catch (e) {
+    logger.e("Error al actualizar paciente: ${e.toString()}");
+    print(e);
+    return '{"Result" : "Failure", "Message" : "Error en la conunicación contra la BD" }';
+  }
 }

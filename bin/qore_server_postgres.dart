@@ -41,21 +41,22 @@ void main() async {
       ..usePrivateKeyBytes(privateKey);
   } catch (e) {
     print(e);
-    exit(33);
+    exit(42);
   }
 
   final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
-  logger.i('WebSocket server running on ${server.address}:${server.port}');
-
-  final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
-  await postgresConnection.open();
+  logger.i('WebSocket server running on ${server.address}:${server.port}',time: DateTime.now());
 
   bool blockingRegister = false;
 
   await for (HttpRequest request in server) {
+    // Open a connection to the DB per http connection (one connection per client)
+    final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
+    await postgresConnection.open();
+
     if (WebSocketTransformer.isUpgradeRequest(request)) {
       WebSocketTransformer.upgrade(request).then((webSocket) async {
-        logger.i('WebSocket connected');
+        logger.i('WebSocket connected',time: DateTime.now());
 
         await for (var message in webSocket) {
           // Convert the message to a list of int
@@ -65,7 +66,7 @@ void main() async {
 
           // Extract action
           int qoreAction = intList[0];
-          logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}");
+          logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}",time: DateTime.now());
 
           // Extract message length
           int messageLength = intList[1] * 255 + intList[2];
@@ -80,60 +81,36 @@ void main() async {
           if (intList.sublist(3).length == messageLength) {
             // Decode from UTF8 list to String
             decoded = utf8.decode(intList.sublist(3));
-            logger.d("Received data: $decoded");
+            logger.d("Received data: $decoded",time: DateTime.now());
           }
 
           if (intList.sublist(3).length == messageLength) {
             // Process command
             var decoded = utf8.decode(intList.sublist(3));
-            logger.t("La decodificación del mensaje recibido es: $decoded");
+            logger.t("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
 
-            //      if (connectedToDB == true) {
             if (action == Commands.getPatientsByLastName.index) {
-              if (postgresConnection.isClosed) await postgresConnection.open();
               responseMessage = await getPatientsByLastName(decoded, postgresConnection);
-              logger.d(responseMessage);
             } else if (action == Commands.getPatientsByIdDoc.index) {
-              if (postgresConnection.isClosed) await postgresConnection.open();
               responseMessage = await getPatientsByIdDoc(decoded, postgresConnection);
-              logger.d(responseMessage);
+            } else if (action == Commands.getPatientById.index) {
+              responseMessage = await getPatientById(decoded, postgresConnection);
             } else if (action == Commands.addPatient.index) {
-              if (postgresConnection.isClosed) await postgresConnection.open();
               String patient = utf8.decode(intList.sublist(3));
               responseMessage = await addPatient(patient, postgresConnection);
             } else if (action == Commands.updatePatient.index) {
-              if (postgresConnection.isClosed) await postgresConnection.open();
               String patient = utf8.decode(intList.sublist(3));
               responseMessage = await updatePatient(patient, postgresConnection);
-            } else if (action == Commands.lockPatient.index ||
-                action == Commands.updatePatient.index ||
-                action == Commands.rollback.index) {
-              String patient = utf8.decode(intList.sublist(3));
-              logger.d("Entramos por la triple.");
-              // First time
-              if (action == Commands.lockPatient.index) {
-              } else if (action == Commands.updatePatient.index) {
-                logger.i("Update received");
-              } else {
-                logger.i("Rollback received");
-                logger.i("Rollback executed");
+            } else if (action == Commands.rollback.index) {
+              try {
+                await postgresConnection.execute("ROLLBACK");
+              } catch (e) {
+                logger.d("No había trnasacción en curso", time: DateTime.now());
               }
-            } else if (action == Commands.lockPatient.index) {
-              String patient = utf8.decode(intList.sublist(3));
             } else {
-              logger.i("Rollback received");
+              logger.i("Comando desconocido recibido", time: DateTime.now());
               await postgresConnection.execute("ROLLBACK");
             }
-
-            // exit(0);
-            // Prof JSON to Dart structure
-            //final data = json.decode(decoded);
-
-            final data = {"action": "pirulines", "payload": "chuenga"};
-            //
-            // final action = data['action'];
-            // final payload = data['payload'];
-            //
 
             logger.d("Response message to be enconded: $responseMessage");
             final encodedMessage = utf8.encode(responseMessage);
