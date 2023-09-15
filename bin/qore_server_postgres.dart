@@ -16,6 +16,8 @@ enum Commands {
   rollback, pong,
 }
 
+
+
 // https://stackoverflow.com/questions/66340807/flutter-how-to-show-log-output-in-console-and-automatically-store-it
 var logger = Logger(
   printer: PrettyPrinter(
@@ -58,6 +60,8 @@ void main() async {
   logger.i('WebSocket server running on ${server.address}:${server.port}', time: DateTime.now());
 
   await for (HttpRequest request in server) {
+
+    String firebaseToken;
     // Open a connection to the DB per http connection (one connection per client)
     final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
     await postgresConnection.open();
@@ -71,10 +75,6 @@ void main() async {
             logger.d("Enviando ping", time: DateTime.now());
             // responseMessage = 'ping';
             webSocket.add('ping');
-            // nroPing++;
-            // if (nroPing >= 2) {
-             // logger.f("El cliente is dead", time: DateTime.now());
-            // }
           } catch (e) {
             logger.d("No pude enviar el ping", time: DateTime.now());
             print(e);
@@ -125,7 +125,10 @@ void main() async {
 
           if (intList.sublist(3).length == messageLength) {
             // Process command
-            var decoded = utf8.decode(intList.sublist(3));
+            var decodedMessage = utf8.decode(intList.sublist(3));
+            var decoded = decodedMessage.split("|")[1];
+            firebaseToken = decodedMessage.split("|")[0];
+            logger.t("El token recibido es: $firebaseToken");
             logger.t("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
 
             if (action == Commands.getPatientsByLastName.index) {
