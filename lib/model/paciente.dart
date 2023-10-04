@@ -47,22 +47,22 @@ class Paciente {
     final id = int.parse(data['id']);
     final nombre = data['nombre'] as String;
     final apellido = data['apellido'] as String;
-    final fechaNacimiento = data['fechaNacimiento'] as String?;
+    final fechaNacimiento = data['fechaNacimiento'] != null ? data['semanasGestacion'] as String : null;
     final documento = data['documento'] as String?;
     final pais = data['pais'] as String?;
     final fechaCreacionFicha = data['fechaCreacionFicha'] as String;
     final sexo = data['sexo'] as String?;
-    final diagnosticoPrenatal = data['diagnosticoPenatal'] as String?;
+    final diagnosticoPrenatal = data['diagnosticoPenatal'] != null ? data['diagnosticoPenatal'] as String? : null;
     final pacienteFallecido = data['pacienteFallecido'] as String?;
     final semanasGestacion = data['semanasGestacion'] != null ? int.parse(data['semanasGestacion']) : null;
     final diag1 = data['diag1'] as String?;
-    final diag2 = data['diag2'] as String?;
-    final diag3 = data['diag3'] as String?;
-    final diag4 = data['diag4'] as String?;
-    final fechaPrimerDiagnostico = data['fechaPrimerDiagnostico'] as String?;
+    final diag2 = data['diag2'] != null ? data['diag2'] as String? : null;
+    final diag3 = data['diag3'] != null ? data['diag3'] as String? : null;
+    final diag4 = data['diag4'] != null ? data['diag4'] as String? : null;
+    final fechaPrimerDiagnostico = data['fechaPrimerDiagnostico'] != null ? data['fechaPrimerDiagnostico'] as String? : null;
     final nroHistClinicaPapel = data['nroHistClinicaPapel'] as String?;
-    final nroFichaDiagPrenatal = data['nroFichaDiagPrenatal'] as String?;
-    final comentarios = data['comentarios'] as String?;
+    final nroFichaDiagPrenatal = data['nroFichaDiagPrenatal'] != null ? data['nroFichaDiagPrenatal'] as String? : null;
+    final comentarios = data['comentarios'] != null ? data['comentarios'] as String? : null;
 
     return Paciente(
       id: id,

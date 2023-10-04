@@ -120,5 +120,12 @@ CREATE INDEX idx_normalized_apellido ON pacientes USING gin(normalized_apellido 
 SELECT * FROM pacientes WHERE unaccent(normalized_apellido) ILIKE unaccent('%cambon%');
 
 
+///////
+Para ver si un certificado está vencido:
+(base) PS D:\home\Gutierrez\Desarrollos\qore_server_postgres> openssl x509 -enddate -noout -in cauto_chain.pem
+notAfter=Sep 19 02:45:22 2023 GMT
+
+
+
 
 

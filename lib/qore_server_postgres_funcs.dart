@@ -105,7 +105,7 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
   }
 }
 
-/*
+/*********************************************************************************************
                   FUNCTION updatePatient
 
                   inputs:
@@ -116,7 +116,7 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
                     Future<String> :
 
 
-*/
+**********************************************************************************************/
 
 Future<String> updatePatient(String patientData, PostgreSQLConnection? conn) async {
   logger.d("Received update request for:  $patientData");
@@ -268,6 +268,10 @@ Future<String> getPatientsByIdDoc(String s, PostgreSQLConnection? conn) async {
   }
 }
 
+/*
+* Traigo el paciente y lo lockeo
+*
+* */
 Future<String> getPatientById(String id, PostgreSQLConnection? conn) async {
   logger.d("Looking for patients by id: $id");
   logger.d("Using connectionwith DB: ${conn!.processID}");
@@ -278,7 +282,8 @@ Future<String> getPatientById(String id, PostgreSQLConnection? conn) async {
   try {
     await conn.query('BEGIN');
 
-    var results = await conn.query("SELECT * FROM pacientes WHERE id = @id  LIMIT 10 FOR UPDATE", substitutionValues: {"id": id});
+    // Selecciono y lockeo al paciente. Si ya está lockeado por otro vuelvo inmediátamente con error
+    var results = await conn.query("SELECT * FROM pacientes WHERE id = @id  LIMIT 10 FOR UPDATE NOWAIT", substitutionValues: {"id": id});
 
     var row = results[0];
     logger.d(row.toString());
@@ -302,8 +307,12 @@ Future<String> getPatientById(String id, PostgreSQLConnection? conn) async {
 
     return jsonEncode(retrievedPatients);
   } catch (e) {
-    logger.e(e);
-    return '{"Result" : "Failure", "Message" : "Error en la comunicación contra la Base de datos" }';
+    logger.e(e.toString());
+    if (e.toString().contains("PostgreSQLSeverity.error 55P03: no se pudo bloquear un candado en la fila")) {
+      return '{"Result" : "Failure", "Message" : "Registro lockeado" }';
+    } else {
+      return '{"Result" : "Failure", "Message" : "Error en la comunicación contra la Base de datos" }';
+    }
   }
 }
 
@@ -441,10 +450,11 @@ Future<String> updatePatientLOCK(String patientData, PostgreSQLConnection? conn)
 
     await conn?.query('SELECT * FROM pacientes WHERE id = @id FOR UPDATE', substitutionValues: {'id': patient.id});
 
-    // print('Before delayed');
-    // await Future.delayed(const Duration(seconds: 20), () {
-    //   print('After delay');
-    // });
+     print('Before delayed');
+     Future.delayed(const Duration(seconds: 60), () {
+       print('After delay');
+       conn?.query('ROLLBAK');
+     });
 
     updateResult = await conn?.query(
         "UPDATE pacientes SET apellido = @apellido, nombre = @nombre, diag1 = @diag1, diag2 = @diag2, diag3 = @diag3, diag4 = @diag4, comentarios = @comentarios, sexo = @sexo, diagnostico_prenatal = @diagnostico_prenatal, paciente_fallecido = @paciente_fallecido, semanas_gestacion = @semanas_gestacion, nro_hist_clinica_papel = @nro_hist_clinica_papel, nro_ficha_diag_prenatal = @nro_ficha_diag_prenatal, fecha_nacimiento = @fecha_nacimiento WHERE id = @id ",

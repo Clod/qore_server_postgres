@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:postgres/postgres.dart';
+import 'package:qore_server_postgres/firebase_stuff.dart';
 import 'package:qore_server_postgres/qore_server_postgres_funcs.dart';
 
 enum Commands {
@@ -13,10 +14,9 @@ enum Commands {
   updatePatient,
   deletePatient,
   lockPatient,
-  rollback, pong,
+  rollback,
+  pong,
 }
-
-
 
 // https://stackoverflow.com/questions/66340807/flutter-how-to-show-log-output-in-console-and-automatically-store-it
 var logger = Logger(
@@ -42,11 +42,12 @@ var loggerNoStack = Logger(
 void main() async {
   Logger.level = Level.trace;
 
-  final certificate = File('cauto_chain.pem').readAsBytesSync();
-  final privateKey = File('cauto_key.pem').readAsBytesSync();
+  final certificate = File('vcsinc_certificate.pem').readAsBytesSync();
+  final privateKey = File('vcsinc_private_key.pem').readAsBytesSync();
 
   late final SecurityContext context;
 
+  // Clod: volver a probar con los vencidos y bajar el servidor.
   try {
     context = SecurityContext()
       ..useCertificateChainBytes(certificate)
@@ -60,7 +61,6 @@ void main() async {
   logger.i('WebSocket server running on ${server.address}:${server.port}', time: DateTime.now());
 
   await for (HttpRequest request in server) {
-
     String firebaseToken;
     // Open a connection to the DB per http connection (one connection per client)
     final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
@@ -81,14 +81,14 @@ void main() async {
           }
         }
 
-        handleTimeoutPong(){
+        handleTimeoutPong() {
           // No hubo respuesta al útlimo ping.
           logger.f("El cliente is dead", time: DateTime.now());
         }
 
         // Define a Maximum inactive timer for the client
-        Duration pingInterval = Duration(seconds: 60);
-        Duration maxInactivityInterval = Duration(seconds: 90);
+        Duration pingInterval = Duration(seconds: 460);
+        Duration maxInactivityInterval = Duration(seconds: 490);
         Timer pingTimer = Timer(pingInterval, handleTimeoutPing);
         Timer pongTimer = Timer(maxInactivityInterval, handleTimeoutPong);
 
@@ -129,46 +129,43 @@ void main() async {
             var decoded = decodedMessage.split("|")[1];
             firebaseToken = decodedMessage.split("|")[0];
             logger.t("El token recibido es: $firebaseToken");
-            logger.t("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
 
-            if (action == Commands.getPatientsByLastName.index) {
-              responseMessage = await getPatientsByLastName(decoded, postgresConnection);
-            } else if (action == Commands.getPatientsByIdDoc.index) {
-              responseMessage = await getPatientsByIdDoc(decoded, postgresConnection);
-            } else if (action == Commands.getPatientById.index) {
-              responseMessage = await getPatientById(decoded, postgresConnection);
-            } else if (action == Commands.addPatient.index) {
-              String patient = utf8.decode(intList.sublist(3));
-              responseMessage = await addPatient(patient, postgresConnection);
-            } else if (action == Commands.updatePatient.index) {
-              String patient = utf8.decode(intList.sublist(3));
-              responseMessage = await updatePatient(patient, postgresConnection);
-            } else if (action == Commands.pong.index) {
-              logger.d("Pong recibido", time: DateTime.now());
-              // Envío otro ping y lanzo timer. Si recibo pong el cliente está
-              // vivo y, si no, es que murió.
-              responseMessage = "ping";
-              pingTimer = Timer(maxInactivityInterval, handleTimeoutPong);
-            } else if (action == Commands.rollback.index) {
-              try {
+            bool validToken = await validateUserFirebaseToken(firebaseToken);
+
+            if (validToken) {
+              logger.t("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
+
+              if (action == Commands.getPatientsByLastName.index) {
+                responseMessage = await getPatientsByLastName(decoded, postgresConnection);
+              } else if (action == Commands.getPatientsByIdDoc.index) {
+                responseMessage = await getPatientsByIdDoc(decoded, postgresConnection);
+              } else if (action == Commands.getPatientById.index) {
+                responseMessage = await getPatientById(decoded, postgresConnection);
+              } else if (action == Commands.addPatient.index) {
+                responseMessage = await addPatient(decoded, postgresConnection);
+              } else if (action == Commands.updatePatient.index) {
+                responseMessage = await updatePatient(decoded, postgresConnection);
+              } else if (action == Commands.pong.index) {
+                logger.d("Pong recibido", time: DateTime.now());
+                // Envío otro ping y lanzo timer. Si recibo pong el cliente está
+                // vivo y, si no, es que murió.
+                responseMessage = "ping";
+                pingTimer = Timer(maxInactivityInterval, handleTimeoutPong);
+              } else if (action == Commands.rollback.index) {
+                try {
+                  await postgresConnection.execute("ROLLBACK");
+                } catch (e) {
+                  logger.d("No había transacción en curso", time: DateTime.now());
+                }
+              } else {
+                logger.i("Comando desconocido recibido", time: DateTime.now());
                 await postgresConnection.execute("ROLLBACK");
-              } catch (e) {
-                logger.d("No había transacción en curso", time: DateTime.now());
               }
             } else {
-              logger.i("Comando desconocido recibido", time: DateTime.now());
-              await postgresConnection.execute("ROLLBACK");
+              responseMessage = "Usuario no autorizado";
             }
-
-            logger.d("Response message to be enconded: $responseMessage");
-            final encodedMessage = utf8.encode(responseMessage);
-            final length = encodedMessage.length;
-            final lengthL = length % 255;
-            final lengthH = (length / 255).truncate();
-            final header = [0x01, lengthH, lengthL];
-            final answerFrame = [...header, ...encodedMessage];
-            logger.i("Sending response back to client");
-            webSocket.add(answerFrame);
+            // Send answer to client
+            sendResponse(responseMessage, webSocket);
           }
         }
       });
@@ -176,6 +173,19 @@ void main() async {
   }
 }
 
+void sendResponse(String responseMessage, WebSocket webSocket) {
+  logger.d("Response message to be enconded: $responseMessage");
+  final encodedMessage = utf8.encode(responseMessage);
+  final length = encodedMessage.length;
+  final lengthL = length % 255;
+  final lengthH = (length / 255).truncate();
+  final header = [0x01, lengthH, lengthL];
+  final answerFrame = [...header, ...encodedMessage];
+  logger.i("Sending response back to client");
+  webSocket.add(answerFrame);
+}
+
+/*
 Future<void> createRecord(Map<String, dynamic> payload, PostgreSQLConnection connection) async {
   final name = payload['name'];
   final age = payload['age'];
@@ -212,3 +222,4 @@ Future<void> deleteRecord(Map<String, dynamic> payload, PostgreSQLConnection con
 
   await connection.query('DELETE FROM users WHERE id = @id', substitutionValues: {'id': id});
 }
+*/

@@ -15,11 +15,14 @@ Future<bool> validateUserFirebaseToken(String token) async {
   var c = client.createCredential(idToken: token);
 
   logger.t(c.client.clientId);
-  logger.t(c.idToken?.claims?.name);
+  logger.t(c.idToken.claims.name);
 
   var violations = c.validateToken(validateClaims: true, validateExpiry: true);
 
-   await for (final e in violations)  tokenOK = false;
+   await for (final e in violations) {
+     logger.d(e.toString());
+     tokenOK = false;
+   }
 
    return tokenOK;
 }
