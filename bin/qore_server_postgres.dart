@@ -65,16 +65,20 @@ void main() async {
     // Open a connection to the DB per http connection (one connection per client)
     final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
     await postgresConnection.open();
+    
 
     if (WebSocketTransformer.isUpgradeRequest(request)) {
-      WebSocketTransformer.upgrade(request).then((webSocket) async {
+      var socket = WebSocketTransformer.upgrade(request).then((webSocket) async {
+
+        server.timeout(Duration(seconds: 10),onTimeout: (_){ logger.d("timeout");} );
+
         logger.i('WebSocket connected', time: DateTime.now());
 
         handleTimeoutPing() async {
           try {
-            logger.d("Enviando ping", time: DateTime.now());
+           // logger.d("Enviando ping", time: DateTime.now());
             // responseMessage = 'ping';
-            webSocket.add('ping');
+           // webSocket.add('ping');
           } catch (e) {
             logger.d("No pude enviar el ping", time: DateTime.now());
             print(e);
@@ -87,13 +91,14 @@ void main() async {
         }
 
         // Define a Maximum inactive timer for the client
-        Duration pingInterval = Duration(seconds: 460);
-        Duration maxInactivityInterval = Duration(seconds: 490);
+        Duration pingInterval = Duration(seconds: 60);
+        Duration maxInactivityInterval = Duration(seconds: 60);
         Timer pingTimer = Timer(pingInterval, handleTimeoutPing);
         Timer pongTimer = Timer(maxInactivityInterval, handleTimeoutPong);
 
         // Infinite loop waiting for messages
         await for (var message in webSocket) {
+
           // Message arrived,reset timers.
           pingTimer.cancel();
           pongTimer.cancel();
