@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:logger/logger.dart';
 import 'package:postgres/postgres.dart';
 import 'package:qore_server_postgres/firebase_stuff.dart';
 import 'package:qore_server_postgres/qore_server_postgres_funcs.dart';
@@ -16,7 +17,30 @@ enum Commands {
   pong,
 }
 
+// https://stackoverflow.com/questions/66340807/flutter-how-to-show-log-output-in-console-and-automatically-store-it
+var logger = Logger(
+  printer: PrettyPrinter(
+      methodCount: 2,
+      // number of method calls to be displayed
+      errorMethodCount: 8,
+      // number of method calls if stacktrace is provided
+      lineLength: 120,
+      // width of the output
+      colors: true,
+      // Colorful log messages
+      printEmojis: false,
+      // Print an emoji for each log message
+      printTime: true // Should each log print contain a timestamp
+  ),
+);
+
+var loggerNoStack = Logger(
+  printer: PrettyPrinter(methodCount: 0),
+);
+
 void main() {
+  Logger.level = Level.info;
+
   WebSocketServer().start();
 }
 
@@ -36,16 +60,20 @@ class WebSocketServer {
         ..useCertificateChainBytes(certificate)
         ..usePrivateKeyBytes(privateKey);
     } catch (e) {
-      print(e);
+      logger.i(e);
       exit(42);
     }
 
     final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
-    print('WebSocket server started on port $port');
+    logger.i('WebSocket server started on port $port');
 
+    // The await for statement is used to iterate over a Stream and asynchronously handle each emitted event.
+    // It is specifically used with Stream objects to listen to and process the events emitted by the stream
+    // in a sequential and asynchronous manner.
     await for (var request in server) {
-      // Open a connection to the DB per http connection (one connection per client)
+      logger.d("New connection with a client opened");
 
+      // Open a connection to the DB per http connection (one connection per client)
       final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
       await postgresConnection.open();
 
@@ -58,22 +86,23 @@ class WebSocketServer {
   void handleWebSocket(HttpRequest request, PostgreSQLConnection postgresConnection) async {
     WebSocket webSocket = await WebSocketTransformer.upgrade(request);
     clients.add(webSocket);
-    print('Client connected');
+    logger.i('Client connected');
 
+    logger.i("Entering infinite loop to attend connection");
     webSocket.listen(
       (message) {
-        print('Received message: $message');
+        logger.d('Received message: $message');
         handleMessage(message, webSocket, postgresConnection);
       },
       onDone: () {
         postgresConnection.execute("ROLLBACK");
         removeClient(webSocket);
-        print('Client disconnected');
+        logger.i('Client disconnected');
       },
       onError: (error) {
         postgresConnection.execute("ROLLBACK");
         removeClient(webSocket);
-        print('Client disconnected due to error');
+        logger.i('Client disconnected due to error');
       },
     );
   }
@@ -84,6 +113,7 @@ class WebSocketServer {
 
   // Stop
   void handleMessage(message, webSocket, PostgreSQLConnection postgresConnection) async {
+
     // Convert the message to a list of int
     List<int> intList = message.toString().split(',').map((str) => int.parse(str)).toList();
     String firebaseToken;
@@ -114,7 +144,7 @@ class WebSocketServer {
       var decodedMessage = utf8.decode(intList.sublist(3));
       var decoded = decodedMessage.split("|")[1];
       firebaseToken = decodedMessage.split("|")[0];
-      logger.t("El token recibido es: $firebaseToken");
+      logger.d("El token recibido es: $firebaseToken");
 
       bool validToken = await validateUserFirebaseToken(firebaseToken);
 
@@ -131,11 +161,6 @@ class WebSocketServer {
           responseMessage = await addPatient(decoded, postgresConnection);
         } else if (action == Commands.updatePatient.index) {
           responseMessage = await updatePatient(decoded, postgresConnection);
-        } else if (action == Commands.pong.index) {
-          logger.d("Pong recibido", time: DateTime.now());
-          // Envío otro ping y lanzo timer. Si recibo pong el cliente está
-          // vivo y, si no, es que murió.
-          responseMessage = "ping";
         } else if (action == Commands.rollback.index) {
           try {
             await postgresConnection.execute("ROLLBACK");
@@ -164,6 +189,6 @@ void sendResponse(String responseMessage, WebSocket webSocket) {
   final lengthH = (length / 255).truncate();
   final header = [0x01, lengthH, lengthL];
   final answerFrame = [...header, ...encodedMessage];
-  logger.i("Sending response back to client");
+  logger.d("Sending response back to client");
   webSocket.add(answerFrame);
 }

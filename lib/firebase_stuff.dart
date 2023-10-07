@@ -5,7 +5,7 @@ Future<bool> validateUserFirebaseToken(String token) async {
 
   bool tokenOK = true;
   // print a list of known issuers
-  print(Issuer.knownIssuers);
+  logger.d(Issuer.knownIssuers);
 
   // discover the metadata of the google OP
   var issuer = await Issuer.discover(Issuer.firebase("cardio-gut"));
