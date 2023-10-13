@@ -70,6 +70,7 @@ class WebSocketServer {
     // The await for statement is used to iterate over a Stream and asynchronously handle each emitted event.
     // It is specifically used with Stream objects to listen to and process the events emitted by the stream
     // in a sequential and asynchronous manner.
+
     await for (var request in server) {
       logger.d("New connection with a client opened");
 
