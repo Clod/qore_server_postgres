@@ -63,6 +63,8 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
 
       String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
 
+      late PostgreSQLResult newRow;
+
       await conn.transaction((ctx) async {
         creationResult = await ctx.query(
             "INSERT INTO pacientes (apellido, normalized_apellido, comentarios,  diag1,  diag2,  diag3,  diag4,  diagnostico_prenatal,  documento,  fecha_creacion_ficha, fecha_nacimiento,   fecha_primer_diagnostico, nombre, nro_ficha_diag_prenatal, nro_hist_clinica_papel,  paciente_fallecido, pais,  semanas_gestacion, sexo ) VALUES (@apellido, @normalized_apellido, @comentarios, @diag1, @diag2, @diag3, @diag4, @diagnostico_prenatal, @documento,  @fecha_creacion_ficha, @fecha_nacimiento,  @fecha_primer_diagnostico, @nombre,  @nro_ficha_diag_prenatal, @nro_hist_clinica_papel, @paciente_fallecido, @pais,  @semanas_gestacion, @sexo)",
@@ -89,11 +91,18 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
               "nro_hist_clinica_papel": patient.nroHistClinicaPapel,
               "nro_ficha_diag_prenatal": patient.nroFichaDiagPrenatal,
             });
+
+        newRow = await ctx.query("SELECT id FROM pacientes");
       });
       //     await conn.execute("COMMIT");
       logger.i("Respuesta al ALTA de la BD ${creationResult!.columnDescriptions.toString()}");
+
+      String id = newRow.last[0].toString();
+
+      logger.i("Se creó el paciente ${patient.nombre} ${patient.apellido} con íd = $id");
+
       result =
-          '{"Result" : "Success", "Message" : "Se creó el paciente ${patient.nombre} ${patient.apellido} con índice nro. a determinar"}';
+          '{"Result" : "Success", "Message" : "Se creó el paciente ${patient.nombre} ${patient.apellido} con íd = $id"}';
     }
     // affectedRows is a BigInt but I seriously doubt the number of
     // patiens cas exceed 9223372036854775807
@@ -116,7 +125,7 @@ Future<String> addPatient(String patientData, PostgreSQLConnection? conn) async 
                     Future<String> :
 
 
-**********************************************************************************************/
+**********************************************************************************************////
 
 Future<String> updatePatient(String patientData, PostgreSQLConnection? conn) async {
   logger.d("Received update request for:  $patientData");
@@ -148,7 +157,7 @@ Future<String> updatePatient(String patientData, PostgreSQLConnection? conn) asy
     PostgreSQLResult? updateResult;
 
     // Just in case last name is changed
-    String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
+    // String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
 
     await conn!.transaction((ctx) async {
       updateResult = await ctx.query(
@@ -442,7 +451,7 @@ Future<String> updatePatientLOCK(String patientData, PostgreSQLConnection? conn)
     PostgreSQLResult? updateResult;
 
     // Just in case last name is changed
-    String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
+    // String normalizedApellido = removeDiacritics(patient.apellido.toLowerCase());
 
     logger.d("Abriendo transacción para modificar paciente con id: ${patient.id}");
 

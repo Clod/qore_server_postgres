@@ -5,6 +5,34 @@ import 'package:postgres/postgres.dart';
 import 'package:qore_server_postgres/firebase_stuff.dart';
 import 'package:qore_server_postgres/qore_server_postgres_funcs.dart';
 
+
+/*
+
+  % psql postgres
+
+
+  CREATE ROLE postgres WITH LOGIN PASSWORD 'root';
+  ALTER ROLE postgres CREATEDB;
+
+  postgres=# create database qore;
+  CREATE DATABASE
+
+  Antes de poder insertar los registros:
+
+  % psql postgres
+
+  postgres=# \c qore;    <- Me conecto a la BD (equivalente al use de MySQL)
+
+  qore=# GRANT USAGE, SELECT ON SEQUENCE pacientes_id_seq TO postgres;
+  GRANT
+
+  Desde la línea de comando y conectado a qore (me conecto con \c qore)
+  (https://en-wiki.ikoula.com/en/Adding_an_extension_in_PostgreSQL)
+  CREATE EXTENSION IF NOT EXISTS "unaccent";
+  qore=# CREATE INDEX idx_normalized_apellido ON pacientes (normalized_apellido);
+
+*/
+
 enum Commands {
   addPatient,
   getPatientsByIdDoc,
@@ -39,7 +67,9 @@ var loggerNoStack = Logger(
 );
 
 void main() {
-  Logger.level = Level.info;
+
+  // Logging levels explained. The most common logging levels include FATAL, ERROR, WARN, INFO, DEBUG, TRACE, ALL, and OFF.
+  Logger.level = Level.all;
 
   WebSocketServer().start();
 }
