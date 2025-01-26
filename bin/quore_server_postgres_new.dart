@@ -85,6 +85,12 @@ class WebSocketServer {
     late final SecurityContext context;
 
     // Clod: volver a probar con los vencidos y bajar el servidor.
+/*
+    Para ver si un certificado está vencido:
+    D:\home\Gutierrez\Desarrollos\qore_server_postgres> openssl x509 -enddate -noout -in cauto_chain.pem
+    notAfter=Sep 19 02:45:22 2023 GMT
+*/
+
     try {
       context = SecurityContext()
         ..useCertificateChainBytes(certificate)
@@ -94,7 +100,8 @@ class WebSocketServer {
       exit(42);
     }
 
-    final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
+    final server = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
+    // final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
     logger.i('WebSocket server started on port $port');
 
     // The await for statement is used to iterate over a Stream and asynchronously handle each emitted event.
@@ -180,7 +187,7 @@ class WebSocketServer {
       bool validToken = await validateUserFirebaseToken(firebaseToken);
 
       if (validToken) {
-        logger.t("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
+        logger.d("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
 
         if (action == Commands.getPatientsByLastName.index) {
           responseMessage = await getPatientsByLastName(decoded, postgresConnection);

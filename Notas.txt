@@ -1,3 +1,13 @@
+El ejecutable del servidor es: bin/quore_server_postgres_new.dart
+
+y se ejecuta: 
+% dart run bin/quore_server_postgres_new.dart
+
+Para arrancar PostgreSQL:
+% brew services start postgresql@15
+
+
+
 Postgres Data Types
 https://www.postgresql.org/docs/current/datatype.html
 
