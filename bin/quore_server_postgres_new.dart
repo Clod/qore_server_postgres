@@ -4,7 +4,7 @@ import 'package:logger/logger.dart';
 import 'package:postgres/postgres.dart';
 import 'package:qore_server_postgres/firebase_stuff.dart';
 import 'package:qore_server_postgres/qore_server_postgres_funcs.dart';
-
+import 'custom_logger_output.dart' as custom;
 
 /*
 
@@ -46,32 +46,49 @@ enum Commands {
 }
 
 // https://stackoverflow.com/questions/66340807/flutter-how-to-show-log-output-in-console-and-automatically-store-it
+final logFile = File('logs/server.log');
 var logger = Logger(
+  filter: ProductionFilter(),
   printer: PrettyPrinter(
       methodCount: 2,
-      // number of method calls to be displayed
       errorMethodCount: 8,
-      // number of method calls if stacktrace is provided
       lineLength: 120,
-      // width of the output
-      colors: true,
-      // Colorful log messages
+      colors: false, // Disable colors for file output
       printEmojis: false,
-      // Print an emoji for each log message
-      printTime: true // Should each log print contain a timestamp
-  ),
+      printTime: true),
+  output: custom.FileOutput(logFile, printToConsole: true),
 );
 
 var loggerNoStack = Logger(
-  printer: PrettyPrinter(methodCount: 0),
+  filter: ProductionFilter(),
+  printer: PrettyPrinter(
+      methodCount: 0,
+      colors: false, // Disable colors for file output
+      printEmojis: false,
+      printTime: true),
+  output: custom.FileOutput(logFile, printToConsole: true),
 );
 
-void main() {
+void main() async {
+  try {
+    // Logging levels explained. The most common logging levels include
+    // FATAL, ERROR, WARN, INFO, DEBUG, TRACE, ALL, and OFF.
+    Logger.level = Level.all;
 
-  // Logging levels explained. The most common logging levels include FATAL, ERROR, WARN, INFO, DEBUG, TRACE, ALL, and OFF.
-  Logger.level = Level.all;
+    logger.i("==========================================");
+    logger.i("Starting server at ${DateTime.now()}");
+    logger.i("Log level: ${Logger.level}");
+    logger.i("Log file path: ${logFile.absolute.path}");
+    logger.d("Debug logging is enabled");
+    logger.w("Warning logging is enabled");
+    logger.e("Error logging is enabled");
+    logger.i("==========================================");
 
-  WebSocketServer().start();
+    WebSocketServer().start();
+  } catch (e, stackTrace) {
+    logger.e("Error starting server", error: e, stackTrace: stackTrace);
+    rethrow;
+  }
 }
 
 class WebSocketServer {
@@ -92,17 +109,22 @@ class WebSocketServer {
 */
 
     try {
+      logger.d("Initializing security context");
       context = SecurityContext()
         ..useCertificateChainBytes(certificate)
         ..usePrivateKeyBytes(privateKey);
-    } catch (e) {
-      logger.i(e);
-      exit(42);
+      logger.i("Security context initialized successfully");
+    } catch (e, stackTrace) {
+      logger.e("Failed to initialize security context",
+          error: e, stackTrace: stackTrace);
+      rethrow;
     }
 
-    final server = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
+    logger.i("Attempting to bind server to port $port");
+    final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
     // final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
-    logger.i('WebSocket server started on port $port');
+    logger.i('WebSocket server successfully started on port $port');
+    logger.i('Server address: ${server.address}');
 
     // The await for statement is used to iterate over a Stream and asynchronously handle each emitted event.
     // It is specifically used with Stream objects to listen to and process the events emitted by the stream
@@ -112,7 +134,8 @@ class WebSocketServer {
       logger.d("New connection with a client opened");
 
       // Open a connection to the DB per http connection (one connection per client)
-      final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore', username: 'postgres', password: 'root');
+      final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore',
+          username: 'postgres', password: 'root');
       await postgresConnection.open();
 
       if (WebSocketTransformer.isUpgradeRequest(request)) {
@@ -121,7 +144,8 @@ class WebSocketServer {
     }
   }
 
-  void handleWebSocket(HttpRequest request, PostgreSQLConnection postgresConnection) async {
+  void handleWebSocket(
+      HttpRequest request, PostgreSQLConnection postgresConnection) async {
     WebSocket webSocket = await WebSocketTransformer.upgrade(request);
     clients.add(webSocket);
     logger.i('Client connected');
@@ -150,17 +174,19 @@ class WebSocketServer {
   }
 
   // Stop
-  void handleMessage(message, webSocket, PostgreSQLConnection postgresConnection) async {
-
+  void handleMessage(
+      message, webSocket, PostgreSQLConnection postgresConnection) async {
     // Convert the message to a list of int
-    List<int> intList = message.toString().split(',').map((str) => int.parse(str)).toList();
+    List<int> intList =
+        message.toString().split(',').map((str) => int.parse(str)).toList();
     String firebaseToken;
 
     String responseMessage = "";
 
     // Extract action
     int qoreAction = intList[0];
-    logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}", time: DateTime.now());
+    logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}",
+        time: DateTime.now());
 
     // Extract message length
     int messageLength = intList[1] * 255 + intList[2];
@@ -187,12 +213,15 @@ class WebSocketServer {
       bool validToken = await validateUserFirebaseToken(firebaseToken);
 
       if (validToken) {
-        logger.d("La decodificación del mensaje recibido es: $decoded", time: DateTime.now());
+        logger.d("La decodificación del mensaje recibido es: $decoded",
+            time: DateTime.now());
 
         if (action == Commands.getPatientsByLastName.index) {
-          responseMessage = await getPatientsByLastName(decoded, postgresConnection);
+          responseMessage =
+              await getPatientsByLastName(decoded, postgresConnection);
         } else if (action == Commands.getPatientsByIdDoc.index) {
-          responseMessage = await getPatientsByIdDoc(decoded, postgresConnection);
+          responseMessage =
+              await getPatientsByIdDoc(decoded, postgresConnection);
         } else if (action == Commands.getPatientById.index) {
           responseMessage = await getPatientById(decoded, postgresConnection);
         } else if (action == Commands.addPatient.index) {
