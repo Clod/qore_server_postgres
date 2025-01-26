@@ -33,7 +33,8 @@ import 'custom_logger_output.dart' as custom;
 
 */
 
-enum Commands {
+/// Represents the available commands that can be processed by the server
+enum Command {
   addPatient,
   getPatientsByIdDoc,
   getPatientsByLastName,
@@ -42,7 +43,15 @@ enum Commands {
   deletePatient,
   lockPatient,
   rollback,
-  pong,
+  pong;
+
+  /// Safely convert an integer to a Command
+  static Command? fromIndex(int index) {
+    if (index >= 0 && index < Command.values.length) {
+      return Command.values[index];
+    }
+    return null;
+  }
 }
 
 // https://stackoverflow.com/questions/66340807/flutter-how-to-show-log-output-in-console-and-automatically-store-it
@@ -84,178 +93,253 @@ void main() async {
     logger.e("Error logging is enabled");
     logger.i("==========================================");
 
-    WebSocketServer().start();
+    WebSocketServer(logger: logger).start();
   } catch (e, stackTrace) {
     logger.e("Error starting server", error: e, stackTrace: stackTrace);
     rethrow;
   }
 }
 
+/// A WebSocket server that handles patient data operations
 class WebSocketServer {
-  final int port = 8080;
-  List<WebSocket> clients = [];
+  static const int port = 8080;
+  final List<WebSocket> _clients = [];
+  final Logger _logger;
 
-  void start() async {
-    final certificate = File('vcsinc_certificate.pem').readAsBytesSync();
-    final privateKey = File('vcsinc_private_key.pem').readAsBytesSync();
+  WebSocketServer({required Logger logger}) : _logger = logger;
 
-    late final SecurityContext context;
-
-    // Clod: volver a probar con los vencidos y bajar el servidor.
-/*
-    Para ver si un certificado está vencido:
-    D:\home\Gutierrez\Desarrollos\qore_server_postgres> openssl x509 -enddate -noout -in cauto_chain.pem
-    notAfter=Sep 19 02:45:22 2023 GMT
-*/
-
+  /// Starts the WebSocket server
+  Future<void> start() async {
+    SecurityContext? context;
     try {
-      logger.d("Initializing security context");
-      context = SecurityContext()
-        ..useCertificateChainBytes(certificate)
-        ..usePrivateKeyBytes(privateKey);
-      logger.i("Security context initialized successfully");
+      context = await _initializeSecurityContext();
     } catch (e, stackTrace) {
-      logger.e("Failed to initialize security context",
-          error: e, stackTrace: stackTrace);
+      _logger.e("Failed to initialize security context", error: e, stackTrace: stackTrace);
       rethrow;
     }
 
-    logger.i("Attempting to bind server to port $port");
-    final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    // final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
-    logger.i('WebSocket server successfully started on port $port');
-    logger.i('Server address: ${server.address}');
+    late final HttpServer server;
+    try {
+      _logger.i("Attempting to bind server to port $port");
+      server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+      // For secure connections:
+      // server = await HttpServer.bindSecure(InternetAddress.anyIPv4, port, context);
+      _logger.i('WebSocket server successfully started on port $port');
+      _logger.i('Server address: ${server.address}');
+    } catch (e, stackTrace) {
+      _logger.e("Failed to start server", error: e, stackTrace: stackTrace);
+      rethrow;
+    }
 
-    // The await for statement is used to iterate over a Stream and asynchronously handle each emitted event.
-    // It is specifically used with Stream objects to listen to and process the events emitted by the stream
-    // in a sequential and asynchronous manner.
+    await _handleIncomingConnections(server);
+  }
 
-    await for (var request in server) {
-      logger.d("New connection with a client opened");
+  /// Initializes the security context for HTTPS/WSS
+  Future<SecurityContext> _initializeSecurityContext() async {
+    final certificate = await File('vcsinc_certificate.pem').readAsBytes();
+    final privateKey = await File('vcsinc_private_key.pem').readAsBytes();
 
-      // Open a connection to the DB per http connection (one connection per client)
-      final postgresConnection = PostgreSQLConnection('localhost', 5432, 'qore',
-          username: 'postgres', password: 'root');
-      await postgresConnection.open();
+    _logger.d("Initializing security context");
+    final context = SecurityContext()
+      ..useCertificateChainBytes(certificate)
+      ..usePrivateKeyBytes(privateKey);
+    _logger.i("Security context initialized successfully");
+    
+    return context;
+  }
 
-      if (WebSocketTransformer.isUpgradeRequest(request)) {
-        handleWebSocket(request, postgresConnection);
+  /// Handles incoming HTTP connections and upgrades them to WebSocket if appropriate
+  Future<void> _handleIncomingConnections(HttpServer server) async {
+    await for (final request in server) {
+      _logger.d("New connection request received");
+
+      if (!WebSocketTransformer.isUpgradeRequest(request)) {
+        _logger.w("Received non-WebSocket request, closing connection");
+        request.response
+          ..statusCode = HttpStatus.badRequest
+          ..write('WebSocket connections only')
+          ..close();
+        continue;
+      }
+
+      try {
+        final postgresConnection = await _createDatabaseConnection();
+        await _handleWebSocketConnection(request, postgresConnection);
+      } catch (e, stackTrace) {
+        _logger.e("Failed to handle connection", error: e, stackTrace: stackTrace);
+        request.response
+          ..statusCode = HttpStatus.internalServerError
+          ..write('Internal server error')
+          ..close();
       }
     }
   }
 
-  void handleWebSocket(
-      HttpRequest request, PostgreSQLConnection postgresConnection) async {
-    WebSocket webSocket = await WebSocketTransformer.upgrade(request);
-    clients.add(webSocket);
-    logger.i('Client connected');
+  /// Creates a new database connection
+  Future<PostgreSQLConnection> _createDatabaseConnection() async {
+    final connection = PostgreSQLConnection(
+      'localhost', 
+      5432, 
+      'qore',
+      username: 'postgres', 
+      password: 'root',
+      timeoutInSeconds: 30,
+      queryTimeoutInSeconds: 30,
+    );
+    
+    try {
+      await connection.open();
+      _logger.d("Database connection established");
+      return connection;
+    } catch (e) {
+      _logger.e("Failed to connect to database", error: e);
+      rethrow;
+    }
+  }
 
-    logger.i("Entering infinite loop to attend connection");
+  /// Handles a WebSocket connection
+  Future<void> _handleWebSocketConnection(
+    HttpRequest request, 
+    PostgreSQLConnection postgresConnection
+  ) async {
+    late final WebSocket webSocket;
+    try {
+      webSocket = await WebSocketTransformer.upgrade(request);
+    } catch (e) {
+      _logger.e("Failed to upgrade connection to WebSocket", error: e);
+      request.response.close();
+      return;
+    }
+
+    _clients.add(webSocket);
+    _logger.i('Client connected');
+
     webSocket.listen(
-      (message) {
-        logger.d('Received message: $message');
-        handleMessage(message, webSocket, postgresConnection);
+      (message) async {
+        _logger.d('Received message: $message');
+        await _handleMessage(message, webSocket, postgresConnection);
       },
-      onDone: () {
-        postgresConnection.execute("ROLLBACK");
-        removeClient(webSocket);
-        logger.i('Client disconnected');
-      },
+      onDone: () => _handleDisconnection(webSocket, postgresConnection),
       onError: (error) {
-        postgresConnection.execute("ROLLBACK");
-        removeClient(webSocket);
-        logger.i('Client disconnected due to error');
+        _logger.e("WebSocket error", error: error);
+        _handleDisconnection(webSocket, postgresConnection);
       },
+      cancelOnError: true,
     );
   }
 
-  void removeClient(WebSocket webSocket) {
-    clients.remove(webSocket);
+  /// Handles client disconnection
+  Future<void> _handleDisconnection(
+    WebSocket webSocket, 
+    PostgreSQLConnection postgresConnection
+  ) async {
+    try {
+      await postgresConnection.execute("ROLLBACK");
+      await postgresConnection.close();
+    } catch (e) {
+      _logger.d("Error during cleanup: ${e.toString()}");
+    } finally {
+      _clients.remove(webSocket);
+      _logger.i('Client disconnected');
+    }
   }
 
-  // Stop
-  void handleMessage(
-      message, webSocket, PostgreSQLConnection postgresConnection) async {
-    // Convert the message to a list of int
-    List<int> intList =
-        message.toString().split(',').map((str) => int.parse(str)).toList();
-    String firebaseToken;
-
-    String responseMessage = "";
-
-    // Extract action
-    int qoreAction = intList[0];
-    logger.d("Received action: $qoreAction = ${Commands.values[qoreAction]}",
-        time: DateTime.now());
-
-    // Extract message length
-    int messageLength = intList[1] * 255 + intList[2];
-
-    String decoded = '';
-
-    // Extract action
-    int action = intList[0];
-    logger.d("Accion recibida: $action = ${Commands.values[action]}");
-
-    if (intList.sublist(3).length == messageLength) {
-      // Decode from UTF8 list to String
-      decoded = utf8.decode(intList.sublist(3));
-      logger.d("Received data: $decoded", time: DateTime.now());
-    }
-
-    if (intList.sublist(3).length == messageLength) {
-      // Process command
-      var decodedMessage = utf8.decode(intList.sublist(3));
-      var decoded = decodedMessage.split("|")[1];
-      firebaseToken = decodedMessage.split("|")[0];
-      logger.d("El token recibido es: $firebaseToken");
-
-      bool validToken = await validateUserFirebaseToken(firebaseToken);
-
-      if (validToken) {
-        logger.d("La decodificación del mensaje recibido es: $decoded",
-            time: DateTime.now());
-
-        if (action == Commands.getPatientsByLastName.index) {
-          responseMessage =
-              await getPatientsByLastName(decoded, postgresConnection);
-        } else if (action == Commands.getPatientsByIdDoc.index) {
-          responseMessage =
-              await getPatientsByIdDoc(decoded, postgresConnection);
-        } else if (action == Commands.getPatientById.index) {
-          responseMessage = await getPatientById(decoded, postgresConnection);
-        } else if (action == Commands.addPatient.index) {
-          responseMessage = await addPatient(decoded, postgresConnection);
-        } else if (action == Commands.updatePatient.index) {
-          responseMessage = await updatePatient(decoded, postgresConnection);
-        } else if (action == Commands.rollback.index) {
-          try {
-            await postgresConnection.execute("ROLLBACK");
-          } catch (e) {
-            logger.d("No había transacción en curso", time: DateTime.now());
-          }
-        } else {
-          logger.i("Comando desconocido recibido", time: DateTime.now());
-          await postgresConnection.execute("ROLLBACK");
-        }
-      } else {
-        responseMessage = "Usuario no autorizado";
+  /// Handles incoming WebSocket messages
+  Future<void> _handleMessage(
+    dynamic message, 
+    WebSocket webSocket, 
+    PostgreSQLConnection postgresConnection
+  ) async {
+    try {
+      final List<int> intList = message.toString().split(',').map((str) => int.parse(str)).toList();
+      
+      if (intList.isEmpty) {
+        _logger.w("Received empty message");
+        return;
       }
 
-      // Send answer to client
-      sendResponse(responseMessage, webSocket);
+      final command = Command.fromIndex(intList[0]);
+      if (command == null) {
+        _logger.w("Invalid command index: ${intList[0]}");
+        return;
+      }
+
+      final messageLength = intList[1] * 255 + intList[2];
+      if (intList.length < 3 || intList.sublist(3).length != messageLength) {
+        _logger.w("Invalid message format");
+        return;
+      }
+
+      final decodedMessage = utf8.decode(intList.sublist(3));
+      final parts = decodedMessage.split("|");
+      if (parts.length != 2) {
+        _logger.w("Invalid message format: missing token or data");
+        return;
+      }
+
+      final firebaseToken = parts[0];
+      final data = parts[1];
+
+      _logger.d("Processing command: $command with token: $firebaseToken");
+
+      if (!await validateUserFirebaseToken(firebaseToken)) {
+        await _sendResponse("Usuario no autorizado", webSocket);
+        return;
+      }
+
+      final responseMessage = await _processCommand(command, data, postgresConnection);
+      await _sendResponse(responseMessage, webSocket);
+    } catch (e, stackTrace) {
+      _logger.e("Error processing message", error: e, stackTrace: stackTrace);
+      await _sendResponse('{"Result":"Failure","Message":"Error interno del servidor"}', webSocket);
     }
   }
-}
 
-void sendResponse(String responseMessage, WebSocket webSocket) {
-  logger.d("Response message to be enconded: $responseMessage");
-  final encodedMessage = utf8.encode(responseMessage);
-  final length = encodedMessage.length;
-  final lengthL = length % 255;
-  final lengthH = (length / 255).truncate();
-  final header = [0x01, lengthH, lengthL];
-  final answerFrame = [...header, ...encodedMessage];
-  logger.d("Sending response back to client");
-  webSocket.add(answerFrame);
+  /// Processes a command and returns the response
+  Future<String> _processCommand(
+    Command command,
+    String data,
+    PostgreSQLConnection postgresConnection
+  ) async {
+    switch (command) {
+      case Command.getPatientsByLastName:
+        return await getPatientsByLastName(data, postgresConnection);
+      case Command.getPatientsByIdDoc:
+        return await getPatientsByIdDoc(data, postgresConnection);
+      case Command.getPatientById:
+        return await getPatientById(data, postgresConnection);
+      case Command.addPatient:
+        return await addPatient(data, postgresConnection);
+      case Command.updatePatient:
+        return await updatePatient(data, postgresConnection);
+      case Command.rollback:
+        try {
+          await postgresConnection.execute("ROLLBACK");
+          return '{"Result":"Success","Message":"Rollback executed"}';
+        } catch (e) {
+          _logger.d("No transaction in progress");
+          return '{"Result":"Success","Message":"No transaction to rollback"}';
+        }
+      default:
+        _logger.w("Unhandled command: $command");
+        await postgresConnection.execute("ROLLBACK");
+        return '{"Result":"Failure","Message":"Comando no soportado"}';
+    }
+  }
+
+  /// Sends a response to the client
+  Future<void> _sendResponse(String responseMessage, WebSocket webSocket) async {
+    try {
+      _logger.d("Sending response: $responseMessage");
+      final encodedMessage = utf8.encode(responseMessage);
+      final length = encodedMessage.length;
+      final lengthL = length % 255;
+      final lengthH = (length / 255).truncate();
+      final header = [0x01, lengthH, lengthL];
+      final answerFrame = [...header, ...encodedMessage];
+      webSocket.add(answerFrame);
+    } catch (e) {
+      _logger.e("Error sending response", error: e);
+    }
+  }
 }
