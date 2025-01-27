@@ -3,3 +3,13 @@
 .dart_tool/
 .DS_Store
 logs/
+.idea/
+.flutter-plugins
+.flutter-plugins-dependencies
+accesories/cauto_chain.pem
+accesories/cauto_key.pem
+vcsinc-ca_bundle.crt.pem
+vcsinc_certificate.pem
+vcsinc_private_key.pem
+*.pem
+

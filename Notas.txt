@@ -1,3 +1,13 @@
+git rm --cached accesories/cauto_chain.pem
+git rm --cached accesories/cauto_key.pem
+git rm --cached vcsinc-ca_bundle.crt.pem
+git rm --cached vcsinc_certificate.pem
+git rm --cached vcsinc_private_key.pem
+
+
+
+
+
 El ejecutable del servidor es: bin/quore_server_postgres_new.dart
 
 y se ejecuta: 

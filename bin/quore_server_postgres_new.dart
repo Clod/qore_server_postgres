@@ -226,11 +226,13 @@ class WebSocketServer {
   // Function to start the WebSocket server
   void start() async {
     // Read the certificate and private key files
-    final certificate = File(certificatePath).readAsBytesSync();
-    final privateKey = File(privateKeyPath).readAsBytesSync();
+    // final certificate = File(certificatePath).readAsBytesSync();
+    // final privateKey = File(privateKeyPath).readAsBytesSync();
+
+    final context = SecurityContext();
 
     // Declare a security context
-    late final SecurityContext context;
+    // late final SecurityContext context;
 
     // Clod: volver a probar con los vencidos y bajar el servidor.
 /*
@@ -243,9 +245,13 @@ class WebSocketServer {
       // Log that the security context is being initialized
       logger.d(initializingSecurityContextLog);
       // Initialize the security context
-      context = SecurityContext()
-        ..useCertificateChainBytes(certificate)
-        ..usePrivateKeyBytes(privateKey);
+      // context = SecurityContext()
+      //   ..useCertificateChainBytes(certificate)
+      //   ..usePrivateKeyBytes(privateKey);
+
+      context.useCertificateChain('/Users/claudiograsso/AndroidStudioProjects/qore_server_postgres/fullchain.pem');
+      context.usePrivateKey('/Users/claudiograsso/AndroidStudioProjects/qore_server_postgres/privkey.pem');
+
       // Log that the security context was initialized successfully
       logger.i(securityContextInitializedLog);
     } catch (e, stackTrace) {
@@ -258,8 +264,8 @@ class WebSocketServer {
     // Log that the server is attempting to bind to the port
     logger.i("$attemptingBindLog$port");
     // Bind the server to the specified address and port
-    final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    // final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
+    // final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
     // Log that the server was started successfully
     logger.i('$webSocketStartedLog$port');
     // Log the server address
