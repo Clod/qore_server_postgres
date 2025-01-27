@@ -11,7 +11,7 @@ import 'package:qore_server_postgres/firebase_stuff.dart';
 // Import the qore_server_postgres_funcs file
 import 'package:qore_server_postgres/qore_server_postgres_funcs.dart';
 // Import the custom_logger_output file
-import 'custom_logger_output.dart' as custom;
+import '../lib/custom_logger_output.dart' as custom;
 
 // Constants for database connection
 const int databasePort = 5432;
