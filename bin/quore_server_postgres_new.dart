@@ -261,11 +261,8 @@ class WebSocketServer {
 
     // Bind the server to the specified address and port
     if (debugMode) {
-
       server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-
     } else {
-
       // Not in debug mode (production) setup the security context
 
       try {
@@ -284,7 +281,6 @@ class WebSocketServer {
 
         // Log that the security context was initialized successfully
         logger.i(securityContextInitializedLog);
-
       } catch (e, stackTrace) {
         // Log any errors that occur during security context initialization
         logger.e(failedSecurityContextLog, error: e, stackTrace: stackTrace);
@@ -425,8 +421,12 @@ class WebSocketServer {
       // Log the received token
       logger.d('$elTokenRecibidoLog$firebaseToken');
 
-      // Validate the firebase token
-      bool validToken = await validateUserFirebaseToken(firebaseToken);
+      bool validToken = true;
+
+      if (!debugMode) {
+        // Validate the firebase token
+        validToken = await validateUserFirebaseToken(firebaseToken);
+      }
 
       // If the token is valid
       if (validToken) {
