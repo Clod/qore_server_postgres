@@ -2,6 +2,7 @@
 import 'dart:convert';
 // Import the dart:io library for input/output operations
 import 'dart:io';
+import 'package:args/args.dart';
 // Import the logger package
 import 'package:logger/logger.dart';
 // Import the postgres package for PostgreSQL database interaction
@@ -103,6 +104,8 @@ const String rollbackCommand = "ROLLBACK";
 
 */
 
+bool debugMode = false;
+
 // Define an enum for available commands
 enum Commands {
   addPatient,
@@ -146,8 +149,15 @@ var loggerNoStack = Logger(
 );
 
 // Main function
-void main() async {
+void main(List<String> arguments) async {
   try {
+    // Parse command-line arguments
+    final parser = ArgParser();
+    parser.addFlag('debug',
+        abbr: 'd', defaultsTo: false, help: 'Enable debug logging');
+    final argResults = parser.parse(arguments);
+    debugMode = argResults['debug'] as bool;
+
     // The most common logging levels include
     // FATAL, ERROR, WARN, INFO, DEBUG, TRACE, ALL, and OFF.
     // Set the logging level to all
@@ -163,6 +173,10 @@ void main() async {
     logger.e("Error logging is enabled");
     logger.i("==========================================");
 
+    // Log if debug mode is enabled
+    logger.i(
+        "Debug mode is ${debugMode ? 'enabled' : 'disabled'} via command line flag");
+
     // Check if the database is up and running.
     logger.d("Checking if the database is up and running...");
 
@@ -174,7 +188,6 @@ void main() async {
 
     // Start the WebSocket server
     WebSocketServer().start();
-    
   } catch (e, stackTrace) {
     // Log any errors that occur during server startup
     logger.e("Error starting server", error: e, stackTrace: stackTrace);
@@ -241,31 +254,48 @@ class WebSocketServer {
     notAfter=Sep 19 02:45:22 2023 GMT
 */
 
-    try {
-      // Log that the security context is being initialized
-      logger.d(initializingSecurityContextLog);
-      // Initialize the security context
-      // context = SecurityContext()
-      //   ..useCertificateChainBytes(certificate)
-      //   ..usePrivateKeyBytes(privateKey);
-
-      context.useCertificateChain('/Users/claudiograsso/AndroidStudioProjects/qore_server_postgres/fullchain.pem');
-      context.usePrivateKey('/Users/claudiograsso/AndroidStudioProjects/qore_server_postgres/privkey.pem');
-
-      // Log that the security context was initialized successfully
-      logger.i(securityContextInitializedLog);
-    } catch (e, stackTrace) {
-      // Log any errors that occur during security context initialization
-      logger.e(failedSecurityContextLog, error: e, stackTrace: stackTrace);
-      // Re-throw the exception
-      rethrow;
-    }
-
     // Log that the server is attempting to bind to the port
     logger.i("$attemptingBindLog$port");
+
+    HttpServer server;
+
     // Bind the server to the specified address and port
-    // final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    final server = await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
+    if (debugMode) {
+
+      server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+
+    } else {
+
+      // Not in debug mode (production) setup the security context
+
+      try {
+        // Log that the security context is being initialized
+        logger.d(initializingSecurityContextLog);
+
+        // Initialize the security context
+
+        // context = SecurityContext()
+        //   ..useCertificateChainBytes(certificate)
+        //   ..usePrivateKeyBytes(privateKey);
+        context.useCertificateChain(
+            '/Users/claudiograsso/AndroidStudioProjects/qore_server_postgres/fullchain.pem');
+        context.usePrivateKey(
+            '/Users/claudiograsso/AndroidStudioProjects/qore_server_postgres/privkey.pem');
+
+        // Log that the security context was initialized successfully
+        logger.i(securityContextInitializedLog);
+
+      } catch (e, stackTrace) {
+        // Log any errors that occur during security context initialization
+        logger.e(failedSecurityContextLog, error: e, stackTrace: stackTrace);
+        // Re-throw the exception
+        rethrow;
+      }
+
+      server =
+          await HttpServer.bindSecure(InternetAddress.anyIPv4, 8080, context);
+    }
+
     // Log that the server was started successfully
     logger.i('$webSocketStartedLog$port');
     // Log the server address
